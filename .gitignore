@@ -12,6 +12,7 @@ venv/
 # Environment variables and secrets
 .env
 .env.*
+data/
 
 # Allow the example configuration
 !.env.example

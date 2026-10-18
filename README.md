@@ -1,26 +1,66 @@
 # SecondBrain AI
 
-A personal knowledge management application. This repository currently contains the engineering foundation for the 10-week project.
+A personal knowledge management application. The current vertical slice accepts PDF, Markdown, and plain-text files, extracts their text, stores metadata and text in SQLite, retains the original files locally, and lists ingested documents.
 
 ## Local setup
 
 Requires Python 3.11 through 3.14.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source ./venv/bin/activate
 python -m pip install -r requirements-dev.txt
 cp .env.example .env
 uvicorn secondbrain.main:app --reload --app-dir src
 ```
 
-The API is available at `http://127.0.0.1:8000`; the health endpoint is `GET /health` and the OpenAPI UI is `/docs`.
+The API is available at `http://127.0.0.1:8000`; the health endpoint is `GET /health`, document endpoints are under `/api/v1/documents`, and the OpenAPI UI is `/docs`.
 
-Configuration is loaded from environment variables with the `SB_` prefix. Local `.env` values are optional; defaults are defined in `secondbrain.config.settings.Settings`.
+Configuration uses the `SB_` environment-variable prefix. Local `.env` values are optional. Defaults are defined in `secondbrain.config.settings.Settings`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `SB_DATABASE_PATH` | `data/secondbrain.db` | SQLite database file |
+| `SB_DOCUMENT_STORAGE_PATH` | `data/documents` | Directory for original uploads |
+| `SB_MAX_UPLOAD_SIZE_BYTES` | `10485760` | Maximum upload size (10 MiB) |
+
+The application creates the database parent and document directory as needed. SQLite is embedded; no database server is required. Stored data remains on disk across application restarts.
+
+## Document API
+
+Supported extensions are `.pdf`, `.md`, and `.txt`. Markdown and text are decoded as UTF-8. PDF extraction uses `pypdf`; encrypted, malformed, empty, or textless PDFs are rejected. OCR is not implemented.
+
+Upload a file as multipart form field `file`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/documents \
+  -F 'file=@notes.md;type=text/markdown'
+```
+
+The response contains metadata only, for example:
+
+```json
+{
+  "id": "0e5f...",
+  "filename": "notes.md",
+  "content_type": "text/markdown",
+  "size_bytes": 123,
+  "created_at": "2026-10-18T10:30:00+00:00",
+  "extracted_text_length": 117
+}
+```
+
+List stored documents (newest first):
+
+```bash
+curl http://127.0.0.1:8000/api/v1/documents
+```
+
+The response is `{"documents": []}` when there are no documents. Listing returns metadata and text length, not extracted text or file bytes.
 
 ## Quality checks
 
-Run these from the repository root:
+Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):
 
 ```bash
 pytest
@@ -33,3 +73,7 @@ mypy src
 
 - [Requirements](docs/requirements.md)
 - [Initial architecture](docs/architecture.md)
+
+## Current limitations
+
+This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, RAG, embeddings, authentication, or cloud storage. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
