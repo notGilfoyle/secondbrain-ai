@@ -5,7 +5,11 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from secondbrain.application.documents import DocumentMetadata, RetrievedDocument
+from secondbrain.application.documents import (
+    DocumentChunk,
+    DocumentMetadata,
+    RetrievedDocument,
+)
 
 
 class SQLiteDocumentRepository:
@@ -14,10 +18,16 @@ class SQLiteDocumentRepository:
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
 
-    def add(self, document: DocumentMetadata, extracted_text: str) -> None:
-        """Insert one document and its extracted text in a transaction."""
+    def add(
+        self,
+        document: DocumentMetadata,
+        extracted_text: str,
+        chunks: list[DocumentChunk],
+    ) -> None:
+        """Insert a document and all its chunks in one transaction."""
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self._database_path)) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
             with connection:
                 self._create_table(connection)
                 connection.execute(
@@ -37,11 +47,29 @@ class SQLiteDocumentRepository:
                         document.created_at.isoformat(),
                     ),
                 )
+                connection.executemany(
+                    """
+                    INSERT INTO document_chunks (
+                        id, document_id, chunk_index, text, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            chunk.id,
+                            chunk.document_id,
+                            chunk.chunk_index,
+                            chunk.text,
+                            chunk.created_at.isoformat(),
+                        )
+                        for chunk in chunks
+                    ],
+                )
 
     def list(self) -> list[DocumentMetadata]:
         """Return metadata newest-first, without loading extracted text."""
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self._database_path)) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
             with connection:
                 self._create_table(connection)
                 rows = connection.execute(
@@ -69,6 +97,7 @@ class SQLiteDocumentRepository:
         """Load one document's metadata and extracted text by its ID."""
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self._database_path)) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
             with connection:
                 self._create_table(connection)
                 row = connection.execute(
@@ -105,6 +134,18 @@ class SQLiteDocumentRepository:
                 size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
                 extracted_text TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (document_id, chunk_index)
             )
             """
         )

@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
+from secondbrain.chunking import chunk_text
+
 
 class DocumentError(Exception):
     """Base class for expected document-ingestion errors."""
@@ -43,6 +45,17 @@ class RetrievedDocument:
     extracted_text: str
 
 
+@dataclass(frozen=True)
+class DocumentChunk:
+    """One ordered piece of extracted text belonging to a document."""
+
+    id: str
+    document_id: str
+    chunk_index: int
+    text: str
+    created_at: datetime
+
+
 class TextExtractor(Protocol):
     """Extract text from bytes in a supported document format."""
 
@@ -60,7 +73,12 @@ class DocumentStorage(Protocol):
 class DocumentRepository(Protocol):
     """Persist document metadata and extracted text."""
 
-    def add(self, document: DocumentMetadata, extracted_text: str) -> None: ...
+    def add(
+        self,
+        document: DocumentMetadata,
+        extracted_text: str,
+        chunks: list[DocumentChunk],
+    ) -> None: ...
 
     def list(self) -> list[DocumentMetadata]: ...
 
@@ -147,8 +165,19 @@ class DocumentService:
             created_at=datetime.now(UTC),
             extracted_text_length=len(extracted_text),
         )
+        chunk_timestamp = datetime.now(UTC)
+        chunks = [
+            DocumentChunk(
+                id=uuid4().hex,
+                document_id=document_id,
+                chunk_index=index,
+                text=chunk,
+                created_at=chunk_timestamp,
+            )
+            for index, chunk in enumerate(chunk_text(extracted_text))
+        ]
         try:
-            self._repository.add(document, extracted_text)
+            self._repository.add(document, extracted_text, chunks)
         except Exception:
             try:
                 self._storage.delete(storage_path)

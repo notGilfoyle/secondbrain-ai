@@ -4,7 +4,7 @@
 
 Health: `HTTP request → health route → HealthService → response`
 
-Ingestion: `multipart upload → document route → DocumentService → extractor → local file storage → SQLite → metadata response`
+Ingestion: `multipart upload → document route → DocumentService → extractor → chunk_text → local file storage → SQLite document + chunks → metadata response`
 
 The health and document routes obtain application services through FastAPI dependency injection. The document service receives plain Python values (filename, content type, and bounded file bytes); it does not depend on FastAPI request types.
 
@@ -16,7 +16,9 @@ The health and document routes obtain application services through FastAPI depen
 - `infrastructure/`: PDF/text extraction, local original-file storage, and SQLite persistence.
 - `main.py`: application factory and ASGI entry point.
 
-The SQLite table stores a unique ID, original filename, canonical content type, safe relative storage filename, size, extracted text, and UTC creation timestamp. Repository calls open and close their own SQLite connection and use parameterized SQL. Original files are written to a temporary file in the configured storage directory and linked to a server-generated UUID filename without overwriting an existing path.
+The `documents` SQLite table stores a unique ID, original filename, canonical content type, safe relative storage filename, size, extracted text, and UTC creation timestamp. The `document_chunks` table stores unique chunk IDs, source document IDs, zero-based indexes, text, and creation timestamps. A foreign key with cascade delete and a unique `(document_id, chunk_index)` constraint preserve ownership and ordering. Connections enable foreign-key enforcement. Schema initialization uses `CREATE TABLE IF NOT EXISTS`, so existing databases retain their document data as the new table is added. Repository calls use parameterized SQL.
+
+Ingestion calls the standalone `chunk_text` utility with its 1000-character size and 150-character overlap defaults. The SQLite repository inserts the document and all chunks in one transaction; a chunk insertion failure rolls the document insert back as well. Original files are written to a temporary file in the configured storage directory and linked to a server-generated UUID filename without overwriting an existing path.
 
 If the database insert fails after the file is written, the application attempts to delete that file. This is compensation, not a distributed transaction: a process crash can still leave an orphan file, and a cleanup failure can leave one behind. Files are not deleted when a database row is manually removed.
 
@@ -24,4 +26,4 @@ The configured default upload file limit is 10 MiB. A pure ASGI receive middlewa
 
 ## Future direction
 
-OCR, RAG, embeddings, authentication, and cloud storage are not implemented. Local persistence is the only current storage implementation; a cloud adapter should be introduced only when required.
+OCR, embeddings, semantic search, RAG, authentication, and cloud storage are not implemented. Character-based chunks are persisted locally in SQLite, but there is no chunk retrieval API or semantic ranking.

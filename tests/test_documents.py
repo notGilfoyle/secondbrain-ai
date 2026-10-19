@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 
 from secondbrain.api.dependencies import get_document_service
 from secondbrain.application.documents import (
+    DocumentChunk,
     DocumentService,
     DocumentTooLarge,
     InvalidDocument,
     UnsupportedDocumentType,
 )
+from secondbrain.chunking import chunk_text
 from secondbrain.config.settings import Settings
 from secondbrain.infrastructure.document_parser import DocumentTextExtractor
 from secondbrain.infrastructure.local_file_storage import LocalFileStorage
@@ -223,7 +225,12 @@ def test_untrusted_and_duplicate_filenames_use_unique_safe_paths(
 
 def test_database_failure_removes_written_original(tmp_path: Path) -> None:
     class FailingRepository:
-        def add(self, document: object, extracted_text: str) -> None:
+        def add(
+            self,
+            document: object,
+            extracted_text: str,
+            chunks: list[DocumentChunk],
+        ) -> None:
             raise sqlite3.OperationalError("simulated database failure")
 
         def list(self) -> list[object]:
@@ -280,6 +287,110 @@ def test_sqlite_insert_failure_rolls_back_and_removes_original(
     assert (
         tmp_path / "files" / recovered.storage_path
     ).read_bytes() == b"database usable"
+
+
+def test_ingestion_persists_ordered_chunks_and_survives_new_repository(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "documents.db"
+    service = DocumentService(
+        DocumentTextExtractor(),
+        LocalFileStorage(tmp_path / "files"),
+        SQLiteDocumentRepository(database_path),
+        4096,
+    )
+    text = "0123456789" * 120 + "tail"
+    document = service.ingest("long.txt", "text/plain", text.encode())
+    expected = chunk_text(text)
+
+    with closing(sqlite3.connect(database_path)) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, document_id, chunk_index, text
+            FROM document_chunks WHERE document_id = ? ORDER BY chunk_index
+            """,
+            (document.id,),
+        ).fetchall()
+
+    assert [row[2] for row in rows] == list(range(len(expected)))
+    assert [row[3] for row in rows] == expected
+    assert all(row[0] and row[1] == document.id for row in rows)
+
+    restarted = SQLiteDocumentRepository(database_path)
+    assert restarted.list()[0].id == document.id
+    with closing(sqlite3.connect(database_path)) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
+            (document.id,),
+        ).fetchone()[0] == len(expected)
+
+
+def test_multiple_documents_have_independent_chunk_indexes(
+    tmp_path: Path,
+) -> None:
+    service = DocumentService(
+        DocumentTextExtractor(),
+        LocalFileStorage(tmp_path / "files"),
+        SQLiteDocumentRepository(tmp_path / "database" / "documents.db"),
+        2048,
+    )
+    first = service.ingest("first.txt", "text/plain", b"a" * 1100)
+    second = service.ingest("second.txt", "text/plain", b"b" * 10)
+
+    with closing(sqlite3.connect(tmp_path / "database" / "documents.db")) as connection:
+        rows = connection.execute(
+            "SELECT document_id, chunk_index FROM document_chunks "
+            "ORDER BY document_id, chunk_index"
+        ).fetchall()
+    assert [row for row in rows if row[0] == first.id] == [(first.id, 0), (first.id, 1)]
+    assert [row for row in rows if row[0] == second.id] == [(second.id, 0)]
+
+
+def test_blank_extracted_text_is_rejected_without_persisting_chunks(
+    service: DocumentService, tmp_path: Path
+) -> None:
+    with pytest.raises(InvalidDocument, match="no extractable text"):
+        service.ingest("blank.txt", "text/plain", b"   ")
+    assert service.list_documents() == []
+    database_path = tmp_path / "database" / "documents.db"
+    if database_path.exists():
+        with closing(sqlite3.connect(database_path)) as connection:
+            assert (
+                connection.execute("SELECT COUNT(*) FROM document_chunks").fetchone()[0]
+                == 0
+            )
+
+
+def test_chunk_insert_failure_rolls_back_document_and_cleans_original(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "documents.db"
+    storage = LocalFileStorage(tmp_path / "files")
+    repository = SQLiteDocumentRepository(database_path)
+    repository.list()  # Initialize schema before installing the failure trigger.
+    with closing(sqlite3.connect(database_path)) as connection:
+        with connection:
+            connection.execute(
+                """
+                CREATE TRIGGER reject_chunk_insert
+                BEFORE INSERT ON document_chunks
+                BEGIN
+                    SELECT RAISE(ABORT, 'simulated chunk failure');
+                END
+                """
+            )
+
+    service = DocumentService(DocumentTextExtractor(), storage, repository, 4096)
+    with pytest.raises(sqlite3.IntegrityError, match="simulated chunk failure"):
+        service.ingest("failed.txt", "text/plain", b"x" * 1200)
+
+    assert list((tmp_path / "files").iterdir()) == []
+    with closing(sqlite3.connect(database_path)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM document_chunks").fetchone()[0]
+            == 0
+        )
 
 
 def test_api_upload_list_and_health_contract(client: TestClient) -> None:

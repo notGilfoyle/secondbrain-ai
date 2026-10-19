@@ -84,10 +84,11 @@ hexadecimal characters returns `422`.
 ## Text chunking
 
 `secondbrain.chunking.chunk_text` provides deterministic character-based
-chunks for extracted text. It is a standalone utility and is not currently
-connected to document ingestion or persistence. The defaults are 1000
-characters per chunk and 150 characters of overlap; callers can pass
-`chunk_size` and `overlap` explicitly.
+chunks for extracted text. Document ingestion uses it with defaults of 1000
+characters per chunk and 150 characters of overlap; callers of the utility can
+pass `chunk_size` and `overlap` explicitly. Chunks are saved to SQLite with a
+source document ID and zero-based index, preserving their order. They are not
+included in upload or retrieval responses.
 
 ```python
 from secondbrain.chunking import chunk_text
@@ -100,7 +101,8 @@ Each chunk starts where the prior chunk ends minus the overlap, preserving
 the original order and repeated boundary text. Character windows do not
 respect words, sentences, or semantic boundaries; Unicode is measured in
 Python string characters rather than bytes or model tokens. Whitespace-only
-input returns no chunks.
+input returns no chunks. Ingestion currently rejects documents whose extracted
+text is entirely whitespace. Embeddings and semantic search are not implemented.
 
 ## Quality checks
 
