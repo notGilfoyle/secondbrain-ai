@@ -81,6 +81,27 @@ The detail response includes the metadata and extracted text:
 A well-formed ID for a missing document returns `404`; an ID that is not 32
 hexadecimal characters returns `422`.
 
+## Text chunking
+
+`secondbrain.chunking.chunk_text` provides deterministic character-based
+chunks for extracted text. It is a standalone utility and is not currently
+connected to document ingestion or persistence. The defaults are 1000
+characters per chunk and 150 characters of overlap; callers can pass
+`chunk_size` and `overlap` explicitly.
+
+```python
+from secondbrain.chunking import chunk_text
+
+chunks = chunk_text("abcdefghij", chunk_size=6, overlap=2)
+# ["abcdef", "efghij"]
+```
+
+Each chunk starts where the prior chunk ends minus the overlap, preserving
+the original order and repeated boundary text. Character windows do not
+respect words, sentences, or semantic boundaries; Unicode is measured in
+Python string characters rather than bytes or model tokens. Whitespace-only
+input returns no chunks.
+
 ## Quality checks
 
 Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):
