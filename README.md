@@ -102,7 +102,43 @@ the original order and repeated boundary text. Character windows do not
 respect words, sentences, or semantic boundaries; Unicode is measured in
 Python string characters rather than bytes or model tokens. Whitespace-only
 input returns no chunks. Ingestion currently rejects documents whose extracted
-text is entirely whitespace. Embeddings and semantic search are not implemented.
+text is entirely whitespace.
+
+## Embedding experiment
+
+An embedding is a numerical vector representing text, useful for comparing
+meaning by vector similarity. This milestone provides an optional local
+provider using Qdrant FastEmbed and `BAAI/bge-small-en-v1.5`, a compact,
+384-dimensional English model. FastEmbed uses a quantized ONNX model rather
+than requiring the full PyTorch stack. The provider is separate from document
+ingestion, and vectors are not persisted.
+
+Install the optional dependency from the repository root:
+
+```bash
+python -m pip install -e ".[embeddings]"
+```
+
+The first model initialization downloads approximately 67 MB of model files
+and needs network access; FastEmbed caches those files for later runs. Create
+one provider and reuse it so the model is not initialized for each input:
+
+```python
+from secondbrain.application.embeddings import cosine_similarity
+from secondbrain.infrastructure.fastembed_provider import FastEmbedProvider
+
+embedder = FastEmbedProvider()
+vectors = embedder.embed_many(["A note about gardening", "Growing tomatoes"])
+print(len(vectors[0]))  # 384
+print(cosine_similarity(vectors[0], vectors[1]))
+```
+
+The checked-in tests use a fake FastEmbed-compatible model and require no
+download. To run a real-model smoke test after installing the extra, run the
+example above in Python. The selected model is English-only and has a 512-token
+input limit; longer text may be truncated by the model tokenizer. Model
+inference speed depends on CPU and available memory. Embeddings are not stored,
+and no semantic search or retrieval workflow exists yet.
 
 ## Quality checks
 
@@ -122,4 +158,4 @@ mypy src
 
 ## Current limitations
 
-This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, RAG, embeddings, authentication, or cloud storage. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
+This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, RAG, semantic search, authentication, or cloud storage. The optional embedding experiment computes vectors locally but does not persist them. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.

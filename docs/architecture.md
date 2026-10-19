@@ -14,7 +14,10 @@ The health and document routes obtain application services through FastAPI depen
 - `application/`: use-case behavior independent of HTTP and infrastructure.
 - `config/`: validated runtime settings sourced from `SB_` environment variables and an optional local `.env` file.
 - `infrastructure/`: PDF/text extraction, local original-file storage, and SQLite persistence.
+- `infrastructure/fastembed_provider.py`: optional local ONNX text embedding provider, independent of document ingestion.
 - `main.py`: application factory and ASGI entry point.
+
+`application/embeddings.py` defines the provider contract and cosine similarity calculation. The optional FastEmbed adapter loads `BAAI/bge-small-en-v1.5` once when an instance is constructed and batches texts through that model. Its first construction downloads and caches model files. Embeddings remain in memory; they are not stored in SQLite or connected to ingestion.
 
 The `documents` SQLite table stores a unique ID, original filename, canonical content type, safe relative storage filename, size, extracted text, and UTC creation timestamp. The `document_chunks` table stores unique chunk IDs, source document IDs, zero-based indexes, text, and creation timestamps. A foreign key with cascade delete and a unique `(document_id, chunk_index)` constraint preserve ownership and ordering. Connections enable foreign-key enforcement. Schema initialization uses `CREATE TABLE IF NOT EXISTS`, so existing databases retain their document data as the new table is added. Repository calls use parameterized SQL.
 
@@ -26,4 +29,4 @@ The configured default upload file limit is 10 MiB. A pure ASGI receive middlewa
 
 ## Future direction
 
-OCR, embeddings, semantic search, RAG, authentication, and cloud storage are not implemented. Character-based chunks are persisted locally in SQLite, but there is no chunk retrieval API or semantic ranking.
+OCR, persisted embeddings, semantic search, RAG, authentication, and cloud storage are not implemented. Character-based chunks are persisted locally in SQLite. The optional embedding experiment can generate and compare vectors, but there is no chunk retrieval API or semantic ranking.
