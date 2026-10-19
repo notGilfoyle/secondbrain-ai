@@ -35,6 +35,14 @@ class DocumentMetadata:
     extracted_text_length: int
 
 
+@dataclass(frozen=True)
+class RetrievedDocument:
+    """Persisted document metadata and extracted text for retrieval."""
+
+    metadata: DocumentMetadata
+    extracted_text: str
+
+
 class TextExtractor(Protocol):
     """Extract text from bytes in a supported document format."""
 
@@ -55,6 +63,8 @@ class DocumentRepository(Protocol):
     def add(self, document: DocumentMetadata, extracted_text: str) -> None: ...
 
     def list(self) -> list[DocumentMetadata]: ...
+
+    def get(self, document_id: str) -> RetrievedDocument | None: ...
 
 
 class DocumentService:
@@ -152,3 +162,7 @@ class DocumentService:
     def list_documents(self) -> list[DocumentMetadata]:
         """Return stored document metadata without extracted text or file bytes."""
         return self._repository.list()
+
+    def get_document(self, document_id: str) -> RetrievedDocument | None:
+        """Return persisted metadata and extracted text for one document."""
+        return self._repository.get(document_id)

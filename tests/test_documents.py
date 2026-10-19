@@ -148,6 +148,18 @@ def test_persistence_survives_new_service_instance(tmp_path: Path) -> None:
     )
 
     assert restarted_service.list_documents() == [saved]
+    retrieved = restarted_service.get_document(saved.id)
+    assert retrieved is not None
+    assert retrieved.metadata == saved
+    assert retrieved.extracted_text == "still here"
+    app.dependency_overrides[get_document_service] = lambda: restarted_service
+    try:
+        with TestClient(app) as client:
+            response = client.get(f"/api/v1/documents/{saved.id}")
+    finally:
+        app.dependency_overrides.pop(get_document_service, None)
+    assert response.status_code == 200
+    assert response.json()["extracted_text"] == "still here"
     assert (tmp_path / "files" / saved.storage_path).read_bytes() == b"still here"
 
 
@@ -286,7 +298,46 @@ def test_api_upload_list_and_health_contract(client: TestClient) -> None:
     listing = client.get("/api/v1/documents")
     assert listing.status_code == 200
     assert listing.json() == {"documents": [body]}
+    retrieved = client.get(f"/api/v1/documents/{body['id']}")
+    assert retrieved.status_code == 200
+    assert retrieved.json() == {
+        **body,
+        "extracted_text": "hello api",
+    }
+    assert "storage_path" not in retrieved.json()
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_api_document_retrieval_not_found_and_invalid_id(client: TestClient) -> None:
+    missing = client.get(f"/api/v1/documents/{'0' * 32}")
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Document not found"}
+
+    invalid = client.get("/api/v1/documents/not-a-uuid")
+    assert invalid.status_code == 422
+    assert "detail" in invalid.json()
+
+
+def test_api_document_retrieval_hides_database_errors(
+    client: TestClient,
+    service: DocumentService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service.ingest("error.txt", "text/plain", b"stored text")
+
+    def fail_lookup(document_id: str) -> None:
+        raise sqlite3.OperationalError("private database detail")
+
+    monkeypatch.setattr(
+        SQLiteDocumentRepository,
+        "get",
+        lambda _repository, document_id: fail_lookup(document_id),
+    )
+    response = client.get(f"/api/v1/documents/{'a' * 32}")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Document retrieval failed"}
+    assert "private database detail" not in response.text
 
 
 def test_api_empty_list_and_bounded_upload(

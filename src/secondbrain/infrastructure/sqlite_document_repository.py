@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from secondbrain.application.documents import DocumentMetadata
+from secondbrain.application.documents import DocumentMetadata, RetrievedDocument
 
 
 class SQLiteDocumentRepository:
@@ -64,6 +64,34 @@ class SQLiteDocumentRepository:
             )
             for row in rows
         ]
+
+    def get(self, document_id: str) -> RetrievedDocument | None:
+        """Load one document's metadata and extracted text by its ID."""
+        self._database_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self._database_path)) as connection:
+            with connection:
+                self._create_table(connection)
+                row = connection.execute(
+                    """
+                    SELECT id, filename, content_type, storage_path, size_bytes,
+                           created_at, length(extracted_text), extracted_text
+                    FROM documents
+                    WHERE id = ?
+                    """,
+                    (document_id,),
+                ).fetchone()
+        if row is None:
+            return None
+        metadata = DocumentMetadata(
+            id=row[0],
+            filename=row[1],
+            content_type=row[2],
+            storage_path=row[3],
+            size_bytes=row[4],
+            created_at=datetime.fromisoformat(row[5]),
+            extracted_text_length=row[6],
+        )
+        return RetrievedDocument(metadata=metadata, extracted_text=row[7])
 
     @staticmethod
     def _create_table(connection: sqlite3.Connection) -> None:

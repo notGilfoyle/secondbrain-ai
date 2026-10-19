@@ -58,6 +58,29 @@ curl http://127.0.0.1:8000/api/v1/documents
 
 The response is `{"documents": []}` when there are no documents. Listing returns metadata and text length, not extracted text or file bytes.
 
+Retrieve one document using its 32-character ID from an upload or list response:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/documents/0e5f1234567890abcdef1234567890ab
+```
+
+The detail response includes the metadata and extracted text:
+
+```json
+{
+  "id": "0e5f1234567890abcdef1234567890ab",
+  "filename": "notes.md",
+  "content_type": "text/markdown",
+  "size_bytes": 123,
+  "created_at": "2026-10-18T10:30:00+00:00",
+  "extracted_text_length": 117,
+  "extracted_text": "# Notes\\nDocument text"
+}
+```
+
+A well-formed ID for a missing document returns `404`; an ID that is not 32
+hexadecimal characters returns `422`.
+
 ## Quality checks
 
 Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):

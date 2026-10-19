@@ -22,3 +22,9 @@ class DocumentListResponse(BaseModel):
     """Collection of document metadata."""
 
     documents: list[DocumentResponse]
+
+
+class DocumentDetailResponse(DocumentResponse):
+    """Document metadata with its extracted text."""
+
+    extracted_text: str

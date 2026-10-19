@@ -3,11 +3,15 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from secondbrain.api.dependencies import get_document_service
-from secondbrain.api.schemas.documents import DocumentListResponse, DocumentResponse
+from secondbrain.api.schemas.documents import (
+    DocumentDetailResponse,
+    DocumentListResponse,
+    DocumentResponse,
+)
 from secondbrain.application.documents import (
     DocumentService,
     DocumentTooLarge,
@@ -79,3 +83,30 @@ def list_documents(service: DocumentServiceDependency) -> DocumentListResponse:
     except Exception as exc:
         logger.exception("Unexpected document listing failure")
         raise HTTPException(status_code=500, detail="Document listing failed") from exc
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentDetailResponse,
+    responses={404: {"description": "Document not found"}},
+)
+def get_document(
+    document_id: Annotated[str, Path(pattern="^[0-9a-fA-F]{32}$")],
+    service: DocumentServiceDependency,
+) -> DocumentDetailResponse:
+    """Retrieve document metadata and extracted text by its UUID hex ID."""
+    try:
+        document = service.get_document(document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return DocumentDetailResponse(
+            **DocumentResponse.model_validate(document.metadata).model_dump(),
+            extracted_text=document.extracted_text,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected document retrieval failure")
+        raise HTTPException(
+            status_code=500, detail="Document retrieval failed"
+        ) from exc
