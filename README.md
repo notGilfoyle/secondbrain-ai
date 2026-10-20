@@ -206,9 +206,41 @@ The repository joins vectors, chunks, and document metadata in one query. The
 service compares every stored candidate for that model in memory and sorts by
 descending cosine similarity, so query time grows linearly with the number and
 size of stored vectors. This exact scan is intended for a small local corpus;
-there is no vector index, HTTP retrieval endpoint, or answer-generation
-pipeline yet. Missing vectors are not candidates. Malformed vectors, non-finite
+there is no vector index or HTTP retrieval endpoint. Missing vectors are not
+candidates. Malformed vectors, non-finite
 values, and dimension mismatches raise errors instead of being skipped.
+
+### RAG answer generation
+
+`RAGService` combines semantic retrieval with an application-supplied text
+generation provider. It sends the question and retrieved context to the
+provider, instructing it to use only that context, acknowledge gaps, and treat
+document text as untrusted data. The context is JSON-encoded in the user
+message. Citations are constructed by the service from retrieval results and
+include document ID, chunk ID, filename, and chunk index; model-generated
+citation references are not used. Duplicate document/chunk results are
+included once.
+
+There is no concrete LLM provider or HTTP endpoint in this project yet. The
+caller must supply an object implementing `generate(system_instruction,
+user_message) -> str`. For example, with an existing `SemanticRetrievalService`
+and an application-provided provider:
+
+```python
+from secondbrain.application.rag import RAGRequest, RAGService
+
+rag = RAGService(retriever, text_generation_provider)
+response = rag.answer(RAGRequest("How does Python handle asynchronous I/O?"))
+print(response.answer)
+for citation in response.citations:
+    print(citation.filename, citation.document_id, citation.chunk_id)
+```
+
+When retrieval finds no sources, the service returns a fixed no-results answer
+without calling the generator. Prompt instructions can reduce unsupported
+answers and prompt injection, but they cannot guarantee that an LLM follows
+those instructions. The answer is not independently verified against its
+citations.
 
 ## Quality checks
 
@@ -228,4 +260,4 @@ mypy src
 
 ## Current limitations
 
-This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, LLM answer generation, authentication, cloud storage, vector index, or HTTP retrieval endpoint. Exact semantic retrieval scans stored vectors and suits only a small local corpus. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
+This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, concrete LLM provider, authentication, cloud storage, vector index, or HTTP retrieval/answer endpoint. RAG answer generation is available as an application service that requires a caller-supplied provider. Exact semantic retrieval scans stored vectors and suits only a small local corpus. Prompt-based grounding cannot guarantee factual or policy compliance from a model. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
