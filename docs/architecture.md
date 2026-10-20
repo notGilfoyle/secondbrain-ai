@@ -19,6 +19,10 @@ The health and document routes obtain application services through FastAPI depen
 
 `application/embeddings.py` defines the provider contract and cosine similarity calculation. The optional FastEmbed adapter loads `BAAI/bge-small-en-v1.5` once when an instance is constructed and batches texts through that model. Its first construction downloads and caches model files. Embeddings remain in memory; they are not stored in SQLite or connected to ingestion.
 
+`EmbeddingGenerationService` is an explicit use case for existing chunks; document ingestion does not call it. It loads chunks without an embedding for the provider's model identity, generates vectors in batches, validates finite numeric values and consistent dimensions, then persists them after inference completes. SQLite writes occur in one transaction, so inference failures create no rows and insertion failures roll back the full persistence batch. Retries skip chunks that already have rows for the same model.
+
+`SQLiteChunkEmbeddingRepository` stores vectors as JSON arrays in `chunk_embeddings`, with a chunk foreign key and a composite primary key `(chunk_id, model_name)`. The separate `embedding_models` table stores the model identity and its fixed dimension; a composite foreign key ensures rows agree with that dimension. JSON is readable and simple for this prototype but larger and slower to decode than packed binary, and it does not support efficient vector search. A changed model revision should use a distinct identity. The use case currently accumulates all generated vectors in memory before the single database write transaction.
+
 The `documents` SQLite table stores a unique ID, original filename, canonical content type, safe relative storage filename, size, extracted text, and UTC creation timestamp. The `document_chunks` table stores unique chunk IDs, source document IDs, zero-based indexes, text, and creation timestamps. A foreign key with cascade delete and a unique `(document_id, chunk_index)` constraint preserve ownership and ordering. Connections enable foreign-key enforcement. Schema initialization uses `CREATE TABLE IF NOT EXISTS`, so existing databases retain their document data as the new table is added. Repository calls use parameterized SQL.
 
 Ingestion calls the standalone `chunk_text` utility with its 1000-character size and 150-character overlap defaults. The SQLite repository inserts the document and all chunks in one transaction; a chunk insertion failure rolls the document insert back as well. Original files are written to a temporary file in the configured storage directory and linked to a server-generated UUID filename without overwriting an existing path.
@@ -29,4 +33,4 @@ The configured default upload file limit is 10 MiB. A pure ASGI receive middlewa
 
 ## Future direction
 
-OCR, persisted embeddings, semantic search, RAG, authentication, and cloud storage are not implemented. Character-based chunks are persisted locally in SQLite. The optional embedding experiment can generate and compare vectors, but there is no chunk retrieval API or semantic ranking.
+OCR-integrated automatic embedding, similarity search, RAG, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite, but there is no vector index or search endpoint.

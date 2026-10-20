@@ -26,6 +26,7 @@ class FastEmbedProvider:
             raise
         model_class = cast(Any, fastembed).TextEmbedding
         self._model: Any = model_class(model_name=model_name)
+        self.model_name = model_name
 
     def embed(self, text: str) -> list[float]:
         """Embed one non-empty string."""

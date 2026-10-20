@@ -140,6 +140,45 @@ input limit; longer text may be truncated by the model tokenizer. Model
 inference speed depends on CPU and available memory. Embeddings are not stored,
 and no semantic search or retrieval workflow exists yet.
 
+### Persisting chunk embeddings
+
+Embedding generation is an explicit application use case; ingestion does not
+invoke it. After documents have been ingested, run this from the repository
+root (with the embedding extra installed) to embed chunks missing vectors for
+the selected model:
+
+```python
+from pathlib import Path
+
+from secondbrain.application.embedding_generation import EmbeddingGenerationService
+from secondbrain.infrastructure.fastembed_provider import FastEmbedProvider
+from secondbrain.infrastructure.sqlite_chunk_embedding_repository import (
+    SQLiteChunkEmbeddingRepository,
+)
+
+provider = FastEmbedProvider()
+repository = SQLiteChunkEmbeddingRepository(Path("data/secondbrain.db"))
+generation = EmbeddingGenerationService(provider, repository, batch_size=32)
+print(generation.embed_missing_chunks())
+```
+
+Vectors are stored in SQLite's `chunk_embeddings` table as JSON arrays of
+floating-point numbers, which are simple to inspect and adequate for this local
+prototype. JSON is larger than packed binary representations and is not
+optimized for similarity search. Rows reference chunks with a foreign key and
+are unique by `(chunk_id, model_name)`, allowing another model's vector for the
+same chunk. `embedding_models` records the model name and its fixed vector
+dimension. The model name is the provider identity; when changing a model
+revision, use a distinct identity to preserve the distinction.
+
+The use case embeds in batches, holds no SQLite transaction during model
+inference, and writes the complete set of generated vectors in one transaction.
+Inference or insertion failure leaves no newly persisted vectors from that
+invocation. Retrying skips chunks that already have a vector for that model.
+All generated vectors are held in memory until persistence, so very large
+corpora may need a later bounded, resumable batch workflow. No vector index or
+similarity-search API is included.
+
 ## Quality checks
 
 Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):

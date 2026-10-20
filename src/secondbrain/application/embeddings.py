@@ -1,16 +1,39 @@
 """Application-level contracts and operations for text embeddings."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from math import fsum, hypot, isfinite
 from typing import Protocol
 
 
 class EmbeddingProvider(Protocol):
-    """Produce vectors for one text or a batch of texts."""
+    """Produce vectors for one text or a batch of texts.
+
+    ``embed_many`` must return vectors in the same order as the input texts.
+    """
+
+    @property
+    def model_name(self) -> str: ...
 
     def embed(self, text: str) -> list[float]: ...
 
     def embed_many(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+@dataclass(frozen=True)
+class ChunkEmbedding:
+    """A vector associated with one chunk and one embedding model identity."""
+
+    chunk_id: str
+    model_name: str
+    vector: tuple[float, ...]
+    created_at: datetime
+
+    @property
+    def dimensions(self) -> int:
+        """Return the vector's number of dimensions."""
+        return len(self.vector)
 
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:

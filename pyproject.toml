@@ -47,3 +47,9 @@ python_version = "3.11"
 mypy_path = "src"
 strict = true
 pretty = true
+
+# Skip incompatible third-party NumPy stub syntax while checking project code.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
