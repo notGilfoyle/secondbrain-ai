@@ -23,6 +23,9 @@ Configuration uses the `SB_` environment-variable prefix. Local `.env` values ar
 | `SB_DATABASE_PATH` | `data/secondbrain.db` | SQLite database file |
 | `SB_DOCUMENT_STORAGE_PATH` | `data/documents` | Directory for original uploads |
 | `SB_MAX_UPLOAD_SIZE_BYTES` | `10485760` | Maximum upload size (10 MiB) |
+| `SB_COHERE_API_KEY` | unset | Optional Cohere API credential; required to construct the Cohere provider |
+| `SB_COHERE_MODEL` | unset | Optional Cohere chat model name; required to construct the Cohere provider |
+| `SB_COHERE_TIMEOUT_SECONDS` | `30.0` | Cohere HTTP request timeout |
 
 The application creates the database parent and document directory as needed. SQLite is embedded; no database server is required. Stored data remains on disk across application restarts.
 
@@ -221,10 +224,9 @@ include document ID, chunk ID, filename, and chunk index; model-generated
 citation references are not used. Duplicate document/chunk results are
 included once.
 
-There is no concrete LLM provider or HTTP endpoint in this project yet. The
-caller must supply an object implementing `generate(system_instruction,
-user_message) -> str`. For example, with an existing `SemanticRetrievalService`
-and an application-provided provider:
+RAG is invoked by application code; there is no HTTP endpoint. The provider
+contract accepts `generate(system_instruction, user_message) -> str`. For
+example, with an existing `SemanticRetrievalService` and a configured provider:
 
 ```python
 from secondbrain.application.rag import RAGRequest, RAGService
@@ -241,6 +243,58 @@ without calling the generator. Prompt instructions can reduce unsupported
 answers and prompt injection, but they cannot guarantee that an LLM follows
 those instructions. The answer is not independently verified against its
 citations.
+
+#### Cohere provider
+
+`CohereTextGenerationProvider` implements the RAG text-generation contract
+using Cohere's non-streaming v2 Chat API over HTTPX. HTTPX is a runtime
+dependency. No Cohere SDK is used. Configuration is optional; copy `.env.example`
+to `.env`, then set `SB_COHERE_API_KEY` and `SB_COHERE_MODEL` locally. Choose a
+model currently enabled for your Cohere account. The default request timeout is
+30 seconds and can be changed with `SB_COHERE_TIMEOUT_SECONDS`. The key is
+stored as a secret setting and is never included in provider error messages.
+
+Invoke the existing RAG orchestration by injecting the concrete provider:
+
+```python
+from pathlib import Path
+
+from secondbrain.application.rag import RAGRequest, RAGService
+from secondbrain.application.retrieval import SemanticRetrievalService
+from secondbrain.config.settings import get_settings
+from secondbrain.infrastructure.cohere_text_generation_provider import (
+    CohereTextGenerationProvider,
+)
+from secondbrain.infrastructure.fastembed_provider import FastEmbedProvider
+from secondbrain.infrastructure.sqlite_chunk_embedding_repository import (
+    SQLiteChunkEmbeddingRepository,
+)
+
+settings = get_settings()
+embedding_provider = FastEmbedProvider()
+repository = SQLiteChunkEmbeddingRepository(settings.database_path)
+retriever = SemanticRetrievalService(embedding_provider, repository)
+with CohereTextGenerationProvider(settings) as text_provider:
+    rag = RAGService(retriever, text_provider)
+    response = rag.answer(RAGRequest("What do my notes say about asyncio?"))
+    print(response.answer)
+    print(response.citations)
+```
+
+The database must already contain documents and embeddings for the selected
+embedding model. Normal tests use HTTPX mock transports and make no network
+requests: run `pytest tests/test_cohere_text_generation_provider.py`.
+
+For a separate real-model smoke test, install the embedding extra if needed,
+configure `.env` with a valid `SB_COHERE_API_KEY` and `SB_COHERE_MODEL`, and
+ensure the configured SQLite database contains at least one document chunk
+embedded using the `FastEmbedProvider` model. Then run the invocation above
+from the repository root with the project's Python environment. It sends the
+question and retrieved document text to Cohere. Cohere chat usage is billed by
+input and output tokens for production keys; larger retrieved contexts raise
+input usage and cost. Check Cohere's [current pricing information](https://docs.cohere.com/docs/how-does-cohere-pricing-work)
+and your account's model access before running the smoke test. No credentials
+belong in source control or shared documentation.
 
 ## Quality checks
 
@@ -260,4 +314,4 @@ mypy src
 
 ## Current limitations
 
-This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, concrete LLM provider, authentication, cloud storage, vector index, or HTTP retrieval/answer endpoint. RAG answer generation is available as an application service that requires a caller-supplied provider. Exact semantic retrieval scans stored vectors and suits only a small local corpus. Prompt-based grounding cannot guarantee factual or policy compliance from a model. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
+This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, authentication, cloud storage, vector index, or HTTP retrieval/answer endpoint. The optional Cohere provider requires account credentials and can incur token-based production charges. Exact semantic retrieval scans stored vectors and suits only a small local corpus. Prompt-based grounding cannot guarantee factual or policy compliance from a model. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
