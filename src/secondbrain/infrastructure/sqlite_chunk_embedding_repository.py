@@ -5,10 +5,12 @@ import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
+from math import isfinite
 from pathlib import Path
 
-from secondbrain.application.documents import DocumentChunk
+from secondbrain.application.documents import DocumentChunk, DocumentMetadata
 from secondbrain.application.embeddings import ChunkEmbedding
+from secondbrain.application.retrieval import EmbeddedChunk
 
 
 class SQLiteChunkEmbeddingRepository:
@@ -150,6 +152,83 @@ class SQLiteChunkEmbeddingRepository:
                 )
             )
         return embeddings
+
+    def list_candidates(self, model_name: str) -> list[EmbeddedChunk]:
+        """Load vectors and associated chunk/document data for one model."""
+        self._database_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self._database_path)) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            with connection:
+                self._create_tables(connection)
+                chunks_table = connection.execute(
+                    """SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'document_chunks'"""
+                ).fetchone()
+                documents_table = connection.execute(
+                    """SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'documents'"""
+                ).fetchone()
+                if chunks_table is None or documents_table is None:
+                    rows = []
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT c.id, c.document_id, c.chunk_index, c.text,
+                               d.id, d.filename, d.content_type, d.storage_path,
+                               d.size_bytes, d.created_at,
+                               length(d.extracted_text),
+                               e.model_name, e.dimensions, e.vector_json
+                        FROM chunk_embeddings AS e
+                        JOIN document_chunks AS c ON c.id = e.chunk_id
+                        JOIN documents AS d ON d.id = c.document_id
+                        WHERE e.model_name = ?
+                        ORDER BY c.document_id, c.chunk_index
+                        """,
+                        (model_name,),
+                    ).fetchall()
+
+        candidates = []
+        for row in rows:
+            vector = self._decode_vector(row[13], row[12])
+            metadata = DocumentMetadata(
+                id=row[4],
+                filename=row[5],
+                content_type=row[6],
+                storage_path=row[7],
+                size_bytes=row[8],
+                created_at=datetime.fromisoformat(row[9]),
+                extracted_text_length=row[10],
+            )
+            candidates.append(
+                EmbeddedChunk(
+                    chunk_id=row[0],
+                    document_id=row[1],
+                    chunk_index=row[2],
+                    text=row[3],
+                    document=metadata,
+                    model_name=row[11],
+                    vector=vector,
+                )
+            )
+        return candidates
+
+    @staticmethod
+    def _decode_vector(vector_json: str, dimensions: int) -> tuple[float, ...]:
+        try:
+            decoded = json.loads(vector_json)
+            if not isinstance(decoded, list) or any(
+                isinstance(value, bool) or not isinstance(value, int | float)
+                for value in decoded
+            ):
+                raise ValueError("stored embedding vector must be a numeric JSON array")
+            vector = tuple(float(value) for value in decoded)
+        except (json.JSONDecodeError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("stored embedding vector is malformed") from exc
+        if len(vector) != dimensions:
+            raise ValueError("stored embedding vector has an invalid dimension")
+        if not all(isfinite(value) for value in vector):
+            raise ValueError("stored embedding vector values must be finite")
+        return vector
 
     @staticmethod
     def _create_tables(connection: sqlite3.Connection) -> None:

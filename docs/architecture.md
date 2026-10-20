@@ -17,11 +17,15 @@ The health and document routes obtain application services through FastAPI depen
 - `infrastructure/fastembed_provider.py`: optional local ONNX text embedding provider, independent of document ingestion.
 - `main.py`: application factory and ASGI entry point.
 
-`application/embeddings.py` defines the provider contract and cosine similarity calculation. The optional FastEmbed adapter loads `BAAI/bge-small-en-v1.5` once when an instance is constructed and batches texts through that model. Its first construction downloads and caches model files. Embeddings remain in memory; they are not stored in SQLite or connected to ingestion.
+`application/embeddings.py` defines the provider contract and cosine similarity calculation. The optional FastEmbed adapter loads `BAAI/bge-small-en-v1.5` once when an instance is constructed and batches texts through that model. Its first construction downloads and caches model files. Ingestion is independent of embedding generation.
 
 `EmbeddingGenerationService` is an explicit use case for existing chunks; document ingestion does not call it. It loads chunks without an embedding for the provider's model identity, generates vectors in batches, validates finite numeric values and consistent dimensions, then persists them after inference completes. SQLite writes occur in one transaction, so inference failures create no rows and insertion failures roll back the full persistence batch. Retries skip chunks that already have rows for the same model.
 
 `SQLiteChunkEmbeddingRepository` stores vectors as JSON arrays in `chunk_embeddings`, with a chunk foreign key and a composite primary key `(chunk_id, model_name)`. The separate `embedding_models` table stores the model identity and its fixed dimension; a composite foreign key ensures rows agree with that dimension. JSON is readable and simple for this prototype but larger and slower to decode than packed binary, and it does not support efficient vector search. A changed model revision should use a distinct identity. The use case currently accumulates all generated vectors in memory before the single database write transaction.
+
+`SemanticRetrievalService` accepts a query and configurable positive `top_k` (default 5). It embeds the query through the same `EmbeddingProvider`, asks the repository for candidates with that exact model identity, and scores candidates with the shared cosine similarity utility. The SQLite repository uses one parameterized join across `chunk_embeddings`, `document_chunks`, and `documents`; query inference completes before the connection is opened. Results include chunk identity, order and text, document metadata, and cosine score, sorted descending. Missing embeddings are not candidates; malformed stored vectors, non-finite values, model identity mismatches, and incompatible dimensions raise errors.
+
+This is exact semantic retrieval over stored vectors, not an LLM answer pipeline. The repository returns all stored candidate vectors for the selected model and ranking scans them in memory, with linear work in corpus vector count and size. It is intended for a small local corpus; no vector index or HTTP retrieval endpoint exists.
 
 The `documents` SQLite table stores a unique ID, original filename, canonical content type, safe relative storage filename, size, extracted text, and UTC creation timestamp. The `document_chunks` table stores unique chunk IDs, source document IDs, zero-based indexes, text, and creation timestamps. A foreign key with cascade delete and a unique `(document_id, chunk_index)` constraint preserve ownership and ordering. Connections enable foreign-key enforcement. Schema initialization uses `CREATE TABLE IF NOT EXISTS`, so existing databases retain their document data as the new table is added. Repository calls use parameterized SQL.
 
@@ -33,4 +37,4 @@ The configured default upload file limit is 10 MiB. A pure ASGI receive middlewa
 
 ## Future direction
 
-OCR-integrated automatic embedding, similarity search, RAG, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite, but there is no vector index or search endpoint.
+OCR-integrated automatic embedding, vector indexing, LLM answer generation, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite; semantic retrieval is currently an application use case without an HTTP endpoint.

@@ -111,7 +111,7 @@ meaning by vector similarity. This milestone provides an optional local
 provider using Qdrant FastEmbed and `BAAI/bge-small-en-v1.5`, a compact,
 384-dimensional English model. FastEmbed uses a quantized ONNX model rather
 than requiring the full PyTorch stack. The provider is separate from document
-ingestion, and vectors are not persisted.
+ingestion.
 
 Install the optional dependency from the repository root:
 
@@ -137,8 +137,7 @@ The checked-in tests use a fake FastEmbed-compatible model and require no
 download. To run a real-model smoke test after installing the extra, run the
 example above in Python. The selected model is English-only and has a 512-token
 input limit; longer text may be truncated by the model tokenizer. Model
-inference speed depends on CPU and available memory. Embeddings are not stored,
-and no semantic search or retrieval workflow exists yet.
+inference speed depends on CPU and available memory.
 
 ### Persisting chunk embeddings
 
@@ -176,8 +175,40 @@ inference, and writes the complete set of generated vectors in one transaction.
 Inference or insertion failure leaves no newly persisted vectors from that
 invocation. Retrying skips chunks that already have a vector for that model.
 All generated vectors are held in memory until persistence, so very large
-corpora may need a later bounded, resumable batch workflow. No vector index or
-similarity-search API is included.
+corpora may need a later bounded, resumable batch workflow.
+
+### Semantic retrieval experiment
+
+Once chunks have stored embeddings, `SemanticRetrievalService` embeds a query
+with the selected provider, loads candidates persisted for that same model
+identity, and ranks chunks using the existing cosine similarity function. It
+returns chunk text and IDs, source document metadata, and a similarity score.
+This is exact top-k vector comparison, not an LLM-generated answer: it returns
+matching source chunks and does not synthesize or explain a response.
+
+```python
+from pathlib import Path
+
+from secondbrain.application.retrieval import SemanticRetrievalService
+from secondbrain.infrastructure.fastembed_provider import FastEmbedProvider
+from secondbrain.infrastructure.sqlite_chunk_embedding_repository import (
+    SQLiteChunkEmbeddingRepository,
+)
+
+provider = FastEmbedProvider()
+repository = SQLiteChunkEmbeddingRepository(Path("data/secondbrain.db"))
+retrieval = SemanticRetrievalService(provider, repository, top_k=5)
+for match in retrieval.retrieve("How do I configure asynchronous Python?"):
+    print(match.similarity, match.document.filename, match.text)
+```
+
+The repository joins vectors, chunks, and document metadata in one query. The
+service compares every stored candidate for that model in memory and sorts by
+descending cosine similarity, so query time grows linearly with the number and
+size of stored vectors. This exact scan is intended for a small local corpus;
+there is no vector index, HTTP retrieval endpoint, or answer-generation
+pipeline yet. Missing vectors are not candidates. Malformed vectors, non-finite
+values, and dimension mismatches raise errors instead of being skipped.
 
 ## Quality checks
 
@@ -197,4 +228,4 @@ mypy src
 
 ## Current limitations
 
-This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, RAG, semantic search, authentication, or cloud storage. The optional embedding experiment computes vectors locally but does not persist them. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
+This slice uses local filesystem storage and SQLite and is intended for local development. It has no OCR, LLM answer generation, authentication, cloud storage, vector index, or HTTP retrieval endpoint. Exact semantic retrieval scans stored vectors and suits only a small local corpus. Filesystem writes and SQLite transactions cannot form one atomic transaction; the application removes the stored file if the database insert fails, but a process crash between the file write and database insert can leave an orphan file. The upload file limit is 10 MiB by default. An ASGI receive guard caps the whole multipart request at the file limit plus 64 KiB for boundaries, headers, and multipart overhead, before FastAPI's parser can spool the over-limit body. A single ASGI message is allocated by the server before middleware can count it, but the middleware does not buffer or replay the request body.
