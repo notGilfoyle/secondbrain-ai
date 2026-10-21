@@ -1,0 +1,25 @@
+{
+  "description": "Synthetic local-first RAG retrieval fixture. Vectors are controlled values for deterministic ranking, not model output.",
+  "chunks": [
+    {"chunk_id": "chunk-release", "document_id": "doc-project", "filename": "project-plan.txt", "chunk_index": 0, "text": "The Northstar release is scheduled for May 12.", "vector": [0.8, 0.6, 0, 0, 0, 0, 0, 0]},
+    {"chunk_id": "chunk-meeting", "document_id": "doc-project", "filename": "project-plan.txt", "chunk_index": 1, "text": "The weekly planning meeting starts at 10:00 on Thursday.", "vector": [0, 0.95, 0, 0, 0, 0, 0, 0]},
+    {"chunk_id": "chunk-budget", "document_id": "doc-project", "filename": "project-plan.txt", "chunk_index": 2, "text": "The prototype budget is capped at 2400 credits.", "vector": [0, 0, 1, 0, 0, 0, 0, 0]},
+    {"chunk_id": "chunk-garden", "document_id": "doc-garden", "filename": "garden-guide.txt", "chunk_index": 0, "text": "Basil grows best with about six hours of direct sunlight each day.", "vector": [0, 0, 0, 1, 0, 0, 0, 0]},
+    {"chunk_id": "chunk-backup", "document_id": "doc-operations", "filename": "operations.txt", "chunk_index": 0, "text": "A full archive backup runs every Sunday at 02:00.", "vector": [0, 0, 0, 0, 1, 0, 0, 0]},
+    {"chunk_id": "chunk-retries", "document_id": "doc-engineering", "filename": "engineering-notes.txt", "chunk_index": 0, "text": "The worker retries failed jobs up to three times.", "vector": [0, 0, 0, 0, 0, 1, 0, 0]},
+    {"chunk_id": "chunk-shipping", "document_id": "doc-store", "filename": "store-policy.txt", "chunk_index": 0, "text": "Standard shipping usually takes two business days.", "vector": [0, 0, 0, 0, 0, 0, 1, 0]},
+    {"chunk_id": "chunk-cafe", "document_id": "doc-neighborhood", "filename": "neighborhood.txt", "chunk_index": 0, "text": "Juniper Cafe opens at 08:00 every weekday.", "vector": [0, 0, 0, 0, 0, 0, 0, 1]}
+  ],
+  "queries": [
+    {"query_id": "release-date", "question": "When is the Northstar release?", "query_vector": [1, 0, 0, 0, 0, 0, 0, 0], "expected_chunk_ids": ["chunk-release"], "expected_answer_facts": ["May 12" ]},
+    {"query_id": "meeting-time", "question": "When does weekly planning meet?", "query_vector": [0, 1, 0, 0, 0, 0, 0, 0], "expected_chunk_ids": ["chunk-meeting"], "expected_answer_facts": ["10:00", "Thursday"]},
+    {"query_id": "prototype-budget", "question": "What is the prototype budget cap?", "query_vector": [0, 0, 1, 0, 0, 0, 0, 0], "expected_chunk_ids": ["chunk-budget"], "expected_answer_facts": ["2400 credits"]},
+    {"query_id": "basil-sunlight", "question": "How much sunlight does basil need?", "query_vector": [0, 0, 0, 1, 0, 0, 0, 0], "expected_chunk_ids": ["chunk-garden"], "expected_answer_facts": ["six hours", "direct sunlight"]},
+    {"query_id": "backup-schedule", "question": "When does the full archive backup run?", "query_vector": [0, 0, 0, 0, 1, 0, 0, 0], "expected_chunk_ids": ["chunk-backup"], "expected_answer_facts": ["Sunday", "02:00"]},
+    {"query_id": "worker-retries", "question": "How many times are failed jobs retried?", "query_vector": [0, 0, 0, 0, 0, 1, 0, 0], "expected_chunk_ids": ["chunk-retries"], "expected_answer_facts": ["three times"]},
+    {"query_id": "shipping-duration", "question": "How long does standard shipping take?", "query_vector": [0, 0, 0, 0, 0, 0, 1, 0], "expected_chunk_ids": ["chunk-shipping"], "expected_answer_facts": ["two business days"]},
+    {"query_id": "cafe-opening", "question": "When does Juniper Cafe open?", "query_vector": [0, 0, 0, 0, 0, 0, 0, 1], "expected_chunk_ids": ["chunk-cafe"], "expected_answer_facts": ["08:00", "weekday"]},
+    {"query_id": "launch-owner", "question": "Who approved the Northstar launch?", "query_vector": [0.5, 0.5, 0, 0, 0, 0, 0, 0], "expected_chunk_ids": [], "expected_answer_facts": []},
+    {"query_id": "cafe-menu", "question": "What is Juniper Cafe's signature dessert?", "query_vector": [0, 0, 0, 0, 0, 0, 0.5, 0.5], "expected_chunk_ids": [], "expected_answer_facts": []}
+  ]
+}
