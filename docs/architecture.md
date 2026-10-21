@@ -43,6 +43,25 @@ If the database insert fails after the file is written, the application attempts
 
 The configured default upload file limit is 10 MiB. A pure ASGI receive middleware caps the complete multipart request at that limit plus 64 KiB for boundaries and headers, counting streamed bytes even when `Content-Length` is missing or too small. A valid oversized `Content-Length` is rejected before reading the body. On streamed overflow the middleware raises Starlette's multipart parsing exception so partially spooled upload files are closed, and the app maps that specific parser error to HTTP 413. The body is passed through once and is not buffered or replayed by the middleware. The ASGI server allocates each received message before middleware can inspect it, so a single oversized ASGI message may already occupy memory; the middleware does not accumulate the whole request.
 
+## Offline retrieval evaluation
+
+`secondbrain.evaluation` contains a small offline metric runner for the
+retrieval contract. `evaluation/dataset.json` is synthetic and version
+controlled; `venv/bin/python scripts/evaluate_retrieval.py --k 3` injects fixed
+vectors and a fake candidate repository into the actual
+`SemanticRetrievalService`. It reports Recall@k, mean reciprocal rank (MRR),
+and answerable queries with no relevant chunk in the top k. Recall@k is the
+share of expected supporting chunk IDs found within k, averaged per answerable
+query; MRR averages the reciprocal rank of each query's first relevant chunk.
+Unanswerable cases are excluded from these ranking metrics, so this evaluation
+are also excluded from retrieval false-positive evaluation, so it does not
+measure irrelevant candidates returned for those questions or test abstention.
+Fixed vectors test plumbing and metric behavior, not
+the semantic quality of FastEmbed vectors. LLM answer quality is not measured
+by this offline suite; prompt instructions alone do not ensure factual
+grounding. See `docs/evaluation-report.md` for the recorded baseline and
+limitations.
+
 ## Future direction
 
-OCR-integrated automatic embedding, vector indexing, LLM answer generation, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite; semantic retrieval is currently an application use case without an HTTP endpoint.
+OCR-integrated automatic embedding, vector indexing, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite. Semantic retrieval and RAG are application use cases without HTTP endpoints. Retrieval evaluation currently uses a small synthetic fixture; broader corpus coverage and separate, human-reviewed live answer-quality evaluation are future work.

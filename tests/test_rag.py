@@ -3,11 +3,18 @@
 import json
 from datetime import UTC, datetime
 
+import httpx
 import pytest
+from pydantic import SecretStr
 
 from secondbrain.application.documents import DocumentMetadata
 from secondbrain.application.rag import RAGRequest, RAGService
 from secondbrain.application.retrieval import RetrievalResult
+from secondbrain.config.settings import Settings
+from secondbrain.infrastructure.cohere_text_generation_provider import (
+    CohereProviderError,
+    CohereTextGenerationProvider,
+)
 
 
 class FakeRetriever:
@@ -70,24 +77,26 @@ def make_result(
     )
 
 
-def test_question_returns_answer_and_citations_with_retrieved_context() -> None:
-    result = make_result()
+def test_question_answers_from_evidence_and_maps_its_citation() -> None:
+    result = make_result(text="The Northstar release is scheduled for May 12.")
     retriever = FakeRetriever([result])
-    provider = FakeTextGenerationProvider("Python supports async I/O with asyncio.")
+    provider = FakeTextGenerationProvider(
+        "The Northstar release is scheduled for May 12."
+    )
     service = RAGService(retriever, provider)
 
-    response = service.answer(RAGRequest("How does Python handle async I/O?"))
+    response = service.answer(RAGRequest("When is the Northstar release?"))
 
-    assert response.answer == "Python supports async I/O with asyncio."
+    assert "May 12" in response.answer
     assert len(response.citations) == 1
     assert response.citations[0].document_id == result.document_id
     assert response.citations[0].chunk_id == result.chunk_id
     assert response.citations[0].filename == "notes.md"
     assert response.citations[0].chunk_index == 0
-    assert retriever.questions == ["How does Python handle async I/O?"]
+    assert retriever.questions == ["When is the Northstar release?"]
     system_instruction, user_message = provider.calls[0]
     prompt = json.loads(user_message)
-    assert prompt["question"] == "How does Python handle async I/O?"
+    assert prompt["question"] == "When is the Northstar release?"
     assert prompt["retrieved_context"] == [
         {
             "document_id": result.document_id,
@@ -110,6 +119,27 @@ def test_empty_retrieval_returns_fallback_without_calling_generator() -> None:
     assert response.citations == ()
     assert retriever.questions == ["A question"]
     assert provider.calls == []
+
+
+def test_unanswerable_context_is_sent_for_abstention() -> None:
+    result = make_result(text="The release is scheduled for May 12.")
+    provider = FakeTextGenerationProvider(
+        "The supplied notes do not say who approved it."
+    )
+
+    response = RAGService(FakeRetriever([result]), provider).answer(
+        RAGRequest("Who approved the release?")
+    )
+
+    assert "do not say" in response.answer
+    system_instruction, _ = provider.calls[0]
+    assert "If the context does not provide enough evidence, say so clearly" in (
+        system_instruction
+    )
+    assert response.citations[0].chunk_id == result.chunk_id
+    assert (
+        json.loads(provider.calls[0][1])["retrieved_context"][0]["text"] == result.text
+    )
 
 
 @pytest.mark.parametrize("question", ["", " \t\n"])
@@ -180,3 +210,48 @@ def test_retrieval_and_generation_errors_propagate() -> None:
             FakeRetriever([make_result()]),
             FakeTextGenerationProvider(error=generation_error),
         ).answer(RAGRequest("Question"))
+
+
+def test_cohere_sanitizes_failure_before_rag_propagates_it() -> None:
+    api_secret = "API_SECRET_SENTINEL_92d1"
+    document_text = "DOCUMENT_CONTENT_SENTINEL_a413"
+    question = "QUESTION_SENTINEL_5bc7"
+    captured_requests: list[httpx.Request] = []
+
+    def respond_with_error(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(
+            500,
+            text=f"upstream error {api_secret} {document_text} {question}",
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(respond_with_error))
+    provider = CohereTextGenerationProvider(
+        Settings(
+            cohere_api_key=SecretStr(api_secret),
+            cohere_model="command-test-model",
+        ),
+        client,
+    )
+    service = RAGService(
+        FakeRetriever([make_result(text=document_text)]),
+        provider,
+    )
+
+    try:
+        with pytest.raises(CohereProviderError) as raised:
+            service.answer(RAGRequest(question))
+    finally:
+        client.close()
+
+    assert str(raised.value) == "Cohere request failed with HTTP status 500"
+    assert api_secret not in str(raised.value)
+    assert document_text not in str(raised.value)
+    assert question not in str(raised.value)
+    assert raised.value.__suppress_context__
+
+    sent_request = captured_requests[0]
+    assert sent_request.headers["Authorization"] == f"Bearer {api_secret}"
+    request_messages = json.loads(sent_request.content)["messages"]
+    assert question in request_messages[1]["content"]
+    assert document_text in request_messages[1]["content"]

@@ -296,6 +296,32 @@ input usage and cost. Check Cohere's [current pricing information](https://docs.
 and your account's model access before running the smoke test. No credentials
 belong in source control or shared documentation.
 
+## Offline retrieval evaluation
+
+The version-controlled fixture in `evaluation/dataset.json` contains eight
+synthetic source chunks and ten questions, including two questions with no
+supporting evidence. It also records expected answer facts and stable chunk
+IDs. Fixed vectors exercise the existing `SemanticRetrievalService` without
+model downloads, credentials, or network access. Run the deterministic report
+from the repository root:
+
+```bash
+venv/bin/python scripts/evaluate_retrieval.py --k 3
+```
+
+Recall@k is the fraction of expected supporting chunks present in the first
+`k` results, averaged over answerable questions. MRR is the average reciprocal
+rank of the first relevant chunk. Questions with no expected supporting chunk
+are excluded from both metrics; the report counts answerable questions with no
+relevant result in the top k. Unanswerable questions are also excluded from
+retrieval false-positive evaluation: this report does not measure how often
+they receive irrelevant candidates. The checked-in baseline report is in
+[`docs/evaluation-report.md`](docs/evaluation-report.md). These metrics assess
+retrieval only. They do not score generated answer quality, abstention, or
+whether a Cohere response is factually grounded. The controlled vectors make
+the ranking repeatable but do not represent model quality or a production
+corpus.
+
 ## Quality checks
 
 Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):
