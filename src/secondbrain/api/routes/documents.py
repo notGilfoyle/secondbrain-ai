@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, s
 from starlette.concurrency import run_in_threadpool
 
 from secondbrain.api.dependencies import get_document_service
+from secondbrain.api.observability import emit_structured_event
 from secondbrain.api.schemas.documents import (
     DocumentDetailResponse,
     DocumentListResponse,
@@ -64,7 +65,12 @@ async def upload_document(
     except InvalidDocument as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("Unexpected document ingestion failure")
+        emit_structured_event(
+            logger,
+            "document.ingestion.failed",
+            operation="ingest",
+            failure_category="unexpected",
+        )
         raise HTTPException(
             status_code=500, detail="Document ingestion failed"
         ) from exc
@@ -81,7 +87,12 @@ def list_documents(service: DocumentServiceDependency) -> DocumentListResponse:
             ]
         )
     except Exception as exc:
-        logger.exception("Unexpected document listing failure")
+        emit_structured_event(
+            logger,
+            "document.list.failed",
+            operation="list",
+            failure_category="unexpected",
+        )
         raise HTTPException(status_code=500, detail="Document listing failed") from exc
 
 
@@ -106,7 +117,12 @@ def get_document(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Unexpected document retrieval failure")
+        emit_structured_event(
+            logger,
+            "document.get.failed",
+            operation="get",
+            failure_category="unexpected",
+        )
         raise HTTPException(
             status_code=500, detail="Document retrieval failed"
         ) from exc

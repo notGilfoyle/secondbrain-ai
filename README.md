@@ -11,8 +11,14 @@ python3 -m venv venv
 source ./venv/bin/activate
 python -m pip install -r requirements-dev.txt
 cp .env.example .env
-uvicorn secondbrain.main:app --reload --app-dir src
+uvicorn secondbrain.main:app --reload --app-dir src --no-access-log
 ```
+
+Uvicorn access logging is disabled in this local launch command because it is a
+separate logging path that can include raw request paths and query strings.
+The application's structured completion event does not sanitize Uvicorn logs;
+if access logging is enabled, configure and review it separately. Keep FastAPI
+debug mode disabled outside local development.
 
 The API is available at `http://127.0.0.1:8000`; the health endpoint is `GET /health`, document endpoints are under `/api/v1/documents`, and the OpenAPI UI is `/docs`.
 
@@ -295,6 +301,29 @@ input and output tokens for production keys; larger retrieved contexts raise
 input usage and cost. Check Cohere's [current pricing information](https://docs.cohere.com/docs/how-does-cohere-pricing-work)
 and your account's model access before running the smoke test. No credentials
 belong in source control or shared documentation.
+
+## HTTP request correlation
+
+Each HTTP request receives a server-generated UUID in the `X-Request-ID`
+response header and a JSON `http.request.completed` log event containing its
+ID, method, matched route template, response status, and duration, including
+unhandled 500 responses. The 500 response keeps Starlette's generic body and
+uses the ID stored in request state. A client `X-Request-ID` is recorded
+separately only when it passes a bounded ASCII allowlist; it never replaces the
+server ID. Request IDs are correlation labels, not authentication or
+authorization signals. Events omit concrete paths, query strings, arbitrary
+headers, request/response bodies, document text, prompts, answers, credentials,
+provider responses, and exception messages. Middleware ordering covers early
+upload-size rejections without reading the body twice.
+
+Unexpected document-route failures emit allowlisted operation and failure
+category events without exception messages or tracebacks. This safe structured
+logging contract applies only to events emitted by the application helper.
+Uvicorn access and unhandled-exception logs are separate paths: access logs may
+include raw paths and query strings, and Uvicorn error logs may include
+tracebacks. The local launch command disables access logs with `--no-access-log`;
+the application's completion event does not sanitize Uvicorn logs. Debug mode
+is intended only for local development and should be disabled elsewhere.
 
 ## Offline retrieval evaluation
 

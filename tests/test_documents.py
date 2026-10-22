@@ -1,5 +1,7 @@
 """Application and API tests for local document ingestion."""
 
+import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
@@ -433,11 +435,14 @@ def test_api_document_retrieval_hides_database_errors(
     client: TestClient,
     service: DocumentService,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
     service.ingest("error.txt", "text/plain", b"stored text")
+    sentinel = "PRIVATE_DATABASE_EXCEPTION_SENTINEL"
 
     def fail_lookup(document_id: str) -> None:
-        raise sqlite3.OperationalError("private database detail")
+        raise sqlite3.OperationalError(sentinel)
 
     monkeypatch.setattr(
         SQLiteDocumentRepository,
@@ -448,7 +453,90 @@ def test_api_document_retrieval_hides_database_errors(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Document retrieval failed"}
-    assert "private database detail" not in response.text
+    assert sentinel not in response.text
+    assert sentinel not in caplog.text
+    events = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "secondbrain.api.routes.documents"
+    ]
+    assert events == [
+        {
+            "event": "document.get.failed",
+            "operation": "get",
+            "failure_category": "unexpected",
+        }
+    ]
+
+
+def test_api_document_listing_hides_unexpected_exception(
+    client: TestClient,
+    service: DocumentService,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    sentinel = "PRIVATE_LIST_EXCEPTION_SENTINEL"
+
+    def fail_listing() -> None:
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(service, "list_documents", fail_listing)
+    response = client.get("/api/v1/documents")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Document listing failed"}
+    assert sentinel not in response.text
+    assert sentinel not in caplog.text
+    events = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "secondbrain.api.routes.documents"
+    ]
+    assert events == [
+        {
+            "event": "document.list.failed",
+            "operation": "list",
+            "failure_category": "unexpected",
+        }
+    ]
+
+
+def test_api_document_ingestion_hides_unexpected_exception(
+    client: TestClient,
+    service: DocumentService,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    sentinel = "PRIVATE_INGESTION_EXCEPTION_SENTINEL"
+
+    def fail_ingestion(*_args: object) -> None:
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(service, "ingest", fail_ingestion)
+    response = client.post(
+        "/api/v1/documents",
+        files={"file": ("private.txt", b"PRIVATE_DOCUMENT_TEXT", "text/plain")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Document ingestion failed"}
+    assert sentinel not in response.text
+    assert "PRIVATE_DOCUMENT_TEXT" not in caplog.text
+    assert sentinel not in caplog.text
+    events = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.name == "secondbrain.api.routes.documents"
+    ]
+    assert events == [
+        {
+            "event": "document.ingestion.failed",
+            "operation": "ingest",
+            "failure_category": "unexpected",
+        }
+    ]
 
 
 def test_api_empty_list_and_bounded_upload(

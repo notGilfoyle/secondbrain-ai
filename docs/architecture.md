@@ -43,6 +43,41 @@ If the database insert fails after the file is written, the application attempts
 
 The configured default upload file limit is 10 MiB. A pure ASGI receive middleware caps the complete multipart request at that limit plus 64 KiB for boundaries and headers, counting streamed bytes even when `Content-Length` is missing or too small. A valid oversized `Content-Length` is rejected before reading the body. On streamed overflow the middleware raises Starlette's multipart parsing exception so partially spooled upload files are closed, and the app maps that specific parser error to HTTP 413. The body is passed through once and is not buffered or replayed by the middleware. The ASGI server allocates each received message before middleware can inspect it, so a single oversized ASGI message may already occupy memory; the middleware does not accumulate the whole request.
 
+## HTTP request correlation and safe completion events
+
+The API's pure ASGI correlation middleware assigns a fresh server-generated
+UUID to every HTTP request, stores it in `scope["state"]["request_id"]`, and
+returns it in `X-Request-ID`. A client `X-Request-ID` is retained only as a
+separate correlation field when it is 1–64 ASCII letters, digits, dots,
+underscores, or hyphens; it never becomes the canonical server ID. Invalid,
+non-ASCII, duplicate, missing, or overlong client IDs are ignored. These IDs
+are correlation labels, not authentication or authorization signals.
+
+Each request emits one JSON `http.request.completed` event with the canonical
+ID, validated client ID if accepted, HTTP method, matched route template (or
+`unmatched`), status, and elapsed milliseconds. It does not include concrete
+paths, query strings, arbitrary headers, bodies, document contents, prompts,
+answers, credentials, provider responses, or exception messages. The
+correlation layer wraps the body-size limiter, so early 413 responses receive
+the same response header and completion event without rereading request data.
+For unhandled 500 errors, a status-specific handler reads the ID already stored
+in ASGI request state and adds it to Starlette's generic `Internal Server Error`
+response. Starlette still re-raises the exception after sending the response;
+the correlation middleware has already emitted its single completion event,
+so no second event is generated. Debug mode bypasses the generic 500 behavior
+and is intended only for local development; keep it disabled elsewhere.
+
+Unexpected document route failures emit `document.ingestion.failed`,
+`document.list.failed`, or `document.get.failed` with an operation and the fixed
+`unexpected` failure category. These events do not include exception text or
+tracebacks. The structured logging helper permits only an explicit set of event
+names and safe fields; this contract applies only to events emitted through
+that helper. Uvicorn access logging and Uvicorn's unhandled-exception logging
+are separate paths. Access logs may include raw paths and query strings, so the
+documented local command uses `--no-access-log`; enabling access logging needs
+its own configuration and review. The application completion event does not
+sanitize Uvicorn logs.
+
 ## Offline retrieval evaluation
 
 `secondbrain.evaluation` contains a small offline metric runner for the
