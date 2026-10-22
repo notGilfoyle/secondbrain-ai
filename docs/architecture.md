@@ -62,6 +62,14 @@ by this offline suite; prompt instructions alone do not ensure factual
 grounding. See `docs/evaluation-report.md` for the recorded baseline and
 limitations.
 
+`secondbrain.answer_evaluation` and `scripts/evaluate_answers.py` provide a
+separate offline answer-quality harness. It feeds controlled source chunks
+through the existing `RAGService` and scripted text provider, validates
+fact/evidence/citation annotations, and reports exact-match and
+abstention phrase proxies. Evidence-support judgments remain human reviewed;
+scripted results are not model-quality measurements. Optional reviewed output
+records are documented in `docs/answer-evaluation-report.md`.
+
 ## Future direction
 
 OCR-integrated automatic embedding, vector indexing, authentication, and cloud storage are not implemented. Character-based chunks and explicitly generated embeddings are persisted locally in SQLite. Semantic retrieval and RAG are application use cases without HTTP endpoints. Retrieval evaluation currently uses a small synthetic fixture; broader corpus coverage and separate, human-reviewed live answer-quality evaluation are future work.

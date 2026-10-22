@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "description": "Synthetic evaluation fixture. Annotation fields record expected facts, evidence, citations, unsupported claims, and judgments; reviewer identity and review date are not recorded. Scripted answers are test inputs, not reviewed model outputs.",
+  "abstention_phrases": ["not enough information", "does not say", "do not say", "could not find"],
+  "cases": [
+    {
+      "case_id": "release-date",
+      "question": "When is the Northstar release?",
+      "case_type": "answerable",
+      "retrieved_chunk_ids": ["chunk-release"],
+      "expected_facts": ["May 12"],
+      "fact_support": {"May 12": {"status": "supported", "chunk_ids": ["chunk-release"]}},
+      "expected_citation_chunk_ids": ["chunk-release"],
+      "scripted_answer": "The Northstar release is scheduled for May 12.",
+      "judgments": {"supported": ["The Northstar release is scheduled for May 12."], "contradicted": [], "unsupported": []},
+      "review_note": "Direct date evidence."
+    },
+    {
+      "case_id": "meeting-time",
+      "question": "When does weekly planning meet?",
+      "case_type": "answerable",
+      "retrieved_chunk_ids": ["chunk-meeting"],
+      "expected_facts": ["10:00", "Thursday"],
+      "fact_support": {"10:00": {"status": "supported", "chunk_ids": ["chunk-meeting"]}, "Thursday": {"status": "supported", "chunk_ids": ["chunk-meeting"]}},
+      "expected_citation_chunk_ids": ["chunk-meeting"],
+      "scripted_answer": "The meeting starts at 10:00 on Thursday.",
+      "judgments": {"supported": ["10:00 Thursday"], "contradicted": [], "unsupported": []},
+      "review_note": "Both time and day are in the source."
+    },
+    {
+      "case_id": "partial-meeting",
+      "question": "When and where is weekly planning?",
+      "case_type": "partially_sufficient",
+      "retrieved_chunk_ids": ["chunk-meeting"],
+      "expected_facts": ["10:00", "Thursday", "Room 4"],
+      "fact_support": {"10:00": {"status": "supported", "chunk_ids": ["chunk-meeting"]}, "Thursday": {"status": "supported", "chunk_ids": ["chunk-meeting"]}, "Room 4": {"status": "withheld", "chunk_ids": []}},
+      "expected_citation_chunk_ids": ["chunk-meeting"],
+      "scripted_answer": "It starts at 10:00 on Thursday. The notes do not say where.",
+      "judgments": {"supported": ["It starts at 10:00 on Thursday."], "contradicted": [], "unsupported": []},
+      "review_note": "Location is intentionally withheld because the evidence is insufficient."
+    },
+    {
+      "case_id": "empty-unanswerable",
+      "question": "Who approved the Northstar launch?",
+      "case_type": "unanswerable",
+      "retrieved_chunk_ids": [],
+      "expected_facts": [],
+      "fact_support": {},
+      "expected_citation_chunk_ids": [],
+      "scripted_answer": "I could not find relevant information in the documents.",
+      "judgments": {"supported": [], "contradicted": [], "unsupported": []},
+      "review_note": "No context: RAG returns its fixed no-results answer."
+    },
+    {
+      "case_id": "insufficient-context",
+      "question": "Who approved the release?",
+      "case_type": "unanswerable",
+      "retrieved_chunk_ids": ["chunk-release"],
+      "expected_facts": [],
+      "fact_support": {},
+      "expected_citation_chunk_ids": ["chunk-release"],
+      "scripted_answer": "The notes do not say who approved it.",
+      "judgments": {"supported": [], "contradicted": [], "unsupported": []},
+      "review_note": "Non-empty context does not answer the question."
+    },
+    {
+      "case_id": "unsupported-plausible-claim",
+      "question": "What is the Northstar release date?",
+      "case_type": "answerable",
+      "retrieved_chunk_ids": ["chunk-release", "chunk-meeting"],
+      "expected_facts": ["May 12"],
+      "fact_support": {"May 12": {"status": "supported", "chunk_ids": ["chunk-release"]}},
+      "expected_citation_chunk_ids": ["chunk-release"],
+      "scripted_answer": "The release is May 12.",
+      "unsupported_claims": ["The Northstar release is on Thursday at 10:00."],
+      "judgments": {"supported": ["The release is May 12."], "contradicted": [], "unsupported": []},
+      "review_note": "The meeting's time is evidence about a meeting, not the release; attributing it to the release is unsupported."
+    },
+    {
+      "case_id": "multi-chunk-attribution",
+      "question": "When is the release and how often are failed jobs retried?",
+      "case_type": "answerable",
+      "retrieved_chunk_ids": ["chunk-release", "chunk-retries"],
+      "expected_facts": ["May 12", "three times"],
+      "fact_support": {"May 12": {"status": "supported", "chunk_ids": ["chunk-release"]}, "three times": {"status": "supported", "chunk_ids": ["chunk-retries"]}},
+      "expected_citation_chunk_ids": ["chunk-release", "chunk-retries"],
+      "scripted_answer": "The release is May 12, and failed jobs are retried up to three times.",
+      "judgments": {"supported": ["The release is May 12.", "Failed jobs are retried up to three times."], "contradicted": [], "unsupported": []},
+      "review_note": "Each fact must be attributable to its own source chunk."
+    },
+    {
+      "case_id": "abstention-phrase-false-positive",
+      "question": "Who approved the Northstar release?",
+      "case_type": "unanswerable",
+      "retrieved_chunk_ids": ["chunk-release"],
+      "expected_facts": [],
+      "fact_support": {},
+      "expected_citation_chunk_ids": ["chunk-release"],
+      "scripted_answer": "The notes do not say who approved it, but the Northstar release was approved by Mira.",
+      "unsupported_claims": ["The Northstar release was approved by Mira."],
+      "judgments": {"supported": [], "contradicted": [], "unsupported": ["The Northstar release was approved by Mira."]},
+      "review_note": "Contains an abstention phrase followed by an unsupported assertion; phrase matching must not be treated as verified abstention."
+    }
+  ]
+}

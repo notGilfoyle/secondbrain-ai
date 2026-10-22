@@ -322,6 +322,17 @@ whether a Cohere response is factually grounded. The controlled vectors make
 the ranking repeatable but do not represent model quality or a production
 corpus.
 
+### Offline answer-quality evaluation
+
+Run `venv/bin/python scripts/evaluate_answers.py` for the separate synthetic
+answer evaluation. It drives the existing `RAGService` with controlled context
+and scripted outputs, checks lexical expected-fact coverage, source citation
+tuples, and abstention phrase matches. Evidence support is represented by
+checked-in judgment annotations; reviewer provenance is not recorded. No network, Cohere credentials, or model downloads
+are used. Scripted results validate evaluator behavior and do not measure real
+LLM quality. See [`docs/answer-evaluation-report.md`](docs/answer-evaluation-report.md)
+for definitions, limitations, and the optional format for reviewed real outputs.
+
 ## Quality checks
 
 Run these from the repository root (or prefix each command with `./venv/bin/` if your shell does not expose the virtual environment commands):
